@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BioMonitor Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --bg: #0f1114; --panel: #1c1f26; --accent: #8ab4f8; --danger: #ea4335; --safe: #34a853; --warn: #fbbc04; }
+        body { background: var(--bg); color: #e8eaed; font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        
+        .sidebar { width: 80px; background: var(--panel); display: flex; flex-direction: column; align-items: center; padding-top: 20px; border-right: 1px solid #333; }
+        .nav-btn { background: transparent; border: none; color: white; font-size: 24px; margin: 15px 0; cursor: pointer; opacity: 0.5; transition: 0.3s; }
+        .nav-btn:hover, .nav-btn.active { opacity: 1; color: var(--accent); }
+
+        .main-content { flex-grow: 1; display: flex; flex-direction: column; padding: 20px; overflow-y: auto; }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .top-actions { display: flex; gap: 10px; align-items: center; }
+        
+        button { padding: 10px 15px; cursor: pointer; border-radius: 8px; border: none; font-weight: bold; transition: 0.2s; }
+        .btn-profile { background: #333; color: white; border: 1px solid #555; }
+        .btn-help { background: var(--warn); color: black; }
+        .btn-sos { background: var(--danger); color: white; animation: sosPulse 2s infinite; }
+        @keyframes sosPulse { 0% { box-shadow: 0 0 0 0 rgba(234,67,53,0.7); } 70% { box-shadow: 0 0 0 10px rgba(234,67,53,0); } 100% { box-shadow: 0 0 0 0 rgba(234,67,53,0); } }
+
+        .status { padding: 5px 15px; border-radius: 20px; font-weight: bold; background: var(--danger); color: white; }
+        .online { background: var(--safe); }
+
+        #history-view { display: none; }
+        .view-container { display: flex; gap: 20px; height: 100%; }
+        .left-col { width: 60%; display: flex; flex-direction: column; gap: 15px; }
+        .right-col { width: 40%; display: flex; flex-direction: column; gap: 15px; }
+
+        .dashboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+        .card { background: var(--panel); padding: 15px; border-radius: 15px; border: 2px solid #333; text-align: center; }
+        .val { font-size: 3em; font-weight: bold; margin: 5px 0; }
+        canvas { max-height: 80px; margin-top: 5px; }
+        
+        @keyframes intenseGlow { 0% { box-shadow: 0 0 5px var(--danger); border-color: var(--danger); } 50% { box-shadow: 0 0 30px var(--danger); border-color: #ff6b6b; } 100% { box-shadow: 0 0 5px var(--danger); border-color: var(--danger); } }
+        .card-alert { animation: intenseGlow 1s infinite !important; }
+
+        .risk-container { display: flex; flex-direction: column; gap: 10px; background: var(--panel); padding: 15px; border-radius: 10px; border: 1px solid #333; }
+        .risk-row { display: flex; justify-content: space-between; padding: 10px; background: #111; border-radius: 8px; align-items: center; font-weight: bold;}
+        .badge-safe { color: var(--safe); }
+
+        .badge-warn { color: var(--danger); animation: flashTxt 0.8s infinite; }
+        @keyframes flashTxt { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
+
+        .diag-box { padding: 15px; background: #332b00; border-left: 5px solid var(--warn); border-radius: 8px; font-weight: bold;}
+        .ai-box { padding: 15px; border-radius: 8px; background: #202124; border-left: 5px solid var(--accent); }
+        .ai-danger { border-left-color: var(--danger); background: #3c1414; }
+
+        .chat-container { flex-grow: 1; background: var(--panel); border: 2px solid var(--accent); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; }
+        .chat-header { background: var(--accent); color: black; padding: 10px; font-weight: bold; text-align: center; }
+        .chat-log { flex-grow: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .chat-input-area { display: flex; padding: 10px; background: #111; }
+        .chat-input-area input { flex-grow: 1; padding: 10px; border-radius: 5px; border: 1px solid #555; background: #222; color: white; outline: none; }
+        .msg-user { align-self: flex-end; background: var(--accent); color: black; padding: 8px 12px; border-radius: 15px 15px 0 15px; max-width: 80%; }
+        .msg-ai { align-self: flex-start; background: #333; color: white; padding: 8px 12px; border-radius: 15px 15px 15px 0; max-width: 80%; }
+
+        .hist-item { background: var(--panel); margin-bottom: 10px; padding: 15px; border-radius: 8px; border-left: 4px solid var(--accent); }
+        .hist-vitals { display: flex; gap: 20px; color: #aaa; font-size: 0.9em; margin: 10px 0;}
+
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: var(--panel); padding: 30px; border-radius: 15px; border: 2px solid var(--accent); width: 300px; display: flex; flex-direction: column; gap: 10px;}
+        .modal-content input, .modal-content select { padding: 8px; border-radius: 5px; border: 1px solid #555; background: #111; color: white; }
+    </style>
+</head>
+<body>
+
+    <div class="modal-overlay" id="profile-modal">
+        <div class="modal-content">
+            <h3>⚙️ Patient Profile</h3>
+            <label>Age</label> <input type="number" id="inp-age" value="19">
+            <label>Gender</label> <select id="inp-gender"><option>Male</option><option>Female</option></select>
+            <label>BMI</label> <input type="number" step="0.1" id="inp-bmi" value="22.9">
+            <label>Hypertension?</label> <select id="inp-htn"><option value="0">No (0)</option><option value="1">Yes (1)</option></select>
+            <button class="btn-profile" onclick="saveProfile()" style="background:var(--accent); color:black; margin-top:10px;">Save & Calibrate</button>
+            <button onclick="document.getElementById('profile-modal').style.display='none'">Cancel</button>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <button class="nav-btn active" onclick="switchTab('dashboard')" title="Live Dashboard">📊</button>
+        <button class="nav-btn" onclick="switchTab('history')" title="History Records">📅</button>
+    </div>
+
+    <div class="main-content">
+        <div class="top-bar">
+            <div class="top-actions">
+                <button class="btn-profile" onclick="document.getElementById('profile-modal').style.display='flex'">👤 Profile</button>
+                <div id="connection-status" class="status">ARDUINO OFFLINE</div>
+            </div>
+            <div class="top-actions">
+                <button class="btn-help" onclick="alert('Help requested! Connecting to local care provider...')">✋ Get Help</button>
+                <button class="btn-sos" onclick="alert('SOS ACTIVATED! Dispatching emergency services to your location!')">🚨 SOS EMERGENCY</button>
+            </div>
+        </div>
+
+        <div id="dashboard-view" class="view-container">
+            
+            <div class="left-col">
+                <div class="diag-box">⚙️ <b>SYSTEM:</b> <span id="diag-text">Vitals Stable</span></div>
+                <div class="ai-box" id="ai-container">🤖 <b>AI FEED:</b> <span id="ai-text">Waiting for anomalies...</span></div>
+
+                <div class="dashboard">
+                    <div class="card" id="card-hr"><h3>Heart Rate</h3><div class="val"><span id="hr">--</span><span style="font-size: 0.3em">BPM</span></div><canvas id="chartHR"></canvas></div>
+                    <div class="card" id="card-spo2"><h3>SpO2 (Oxygen)</h3><div class="val"><span id="spo2">--</span><span style="font-size: 0.3em">%</span></div><canvas id="chartSpO2"></canvas></div>
+                    <div class="card" id="card-temp"><h3>Temperature</h3><div class="val"><span id="temp">--</span><span style="font-size: 0.3em">&deg;C</span></div><canvas id="chartTemp"></canvas></div>
+                </div>
+
+                <div style="background: var(--panel); padding: 15px; border-radius: 10px;">
+                    <h3 style="margin-top:0;">Dev Simulator (No Auto-Recovery)</h3>
+                    <button class="btn-profile" style="background:#8ab4f8; color:black" onclick="setSim('normal')">Simulate Normal</button>
+                    <button class="btn-warn" onclick="setSim('anxiety')">Simulate Anxiety</button>
+                    <button class="btn-danger" onclick="setSim('exertion')">Simulate Exertion</button>
+                    <button class="btn-danger" onclick="setSim('hypoxia')">Simulate Hypoxia</button>
+                    <button class="btn-profile" onclick="resetSim()" style="float:right;">Reset to Hardware</button>
+                </div>
+            </div>
+
+            <div class="right-col">
+                <div class="risk-container">
+                    <h3 style="margin: 0 0 5px 0;">Predictive Risk Analysis</h3>
+                    <div class="risk-row">🫀 Cardiac Exertion Risk <span id="risk-hr" class="badge-safe">Safe Range</span></div>
+                    <div class="risk-row">🫁 Oxygen Depletion <span id="risk-spo2" class="badge-safe">Safe Range</span></div>
+                    <div class="risk-row">🌡️ Temp Abnormality <span id="risk-temp" class="badge-safe">Safe Range</span></div>
+                </div>
+
+                <div class="chat-container">
+                    <div class="chat-header">💬 Live Medical AI</div>
+                    <div class="chat-log" id="chat-log"><div class="msg-ai">Monitoring vitals. Ask me anything if you feel unwell.</div></div>
+                    <div class="chat-input-area">
+                        <input type="text" id="chat-input" placeholder="Type here..." onkeypress="if(event.key === 'Enter') sendChat()">
+                        <button class="btn-profile" style="margin:0 0 0 10px;" onclick="sendChat()">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="history-view" style="display:none; flex-direction:column;">
+            <h2>Historical Records & AI Analysis</h2>
+            <div id="history-list">Loading records...</div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let lastRealUpdate = 0, simMode = false;
+        const TARGET_HR = 72, TARGET_SPO2 = 98, TARGET_TEMP = 36.5;
+        let simData = { hr: TARGET_HR, spo2: TARGET_SPO2, temp: TARGET_TEMP }; 
+        let currentVitals = { hr: 0, spo2: 0, temp: 0 }; 
+
+        const makeChart = (ctx, color, min, max) => new Chart(document.getElementById(ctx), { type: 'line', data: { labels: Array(25).fill(''), datasets: [{ data: Array(25).fill(null), borderColor: color, tension: 0.4, pointRadius: 0 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { display: false, min: min, max: max } }, plugins: { legend: { display: false } }, animation: { duration: 0 } } });
+        const charts = { hr: makeChart('chartHR', '#f28b82', 50, 160), spo2: makeChart('chartSpO2', '#81c995', 85, 100), temp: makeChart('chartTemp', '#8ab4f8', 34, 40) };
+
+        function switchTab(tab) {
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            document.getElementById('dashboard-view').style.display = tab === 'dashboard' ? 'flex' : 'none';
+            document.getElementById('history-view').style.display = tab === 'history' ? 'flex' : 'none';
+            if(tab === 'history') loadHistory();
+        }
+
+        function saveProfile() {
+            socket.emit('update_profile', { age: document.getElementById('inp-age').value, gender: document.getElementById('inp-gender').value, bmi: document.getElementById('inp-bmi').value, hypertension: document.getElementById('inp-htn').value });
+            document.getElementById('profile-modal').style.display = 'none';
+        }
+
+        socket.on('update', (data) => {
+            currentVitals = data; 
+            if (!data.is_sim) { lastRealUpdate = Date.now(); document.getElementById('connection-status').innerText = "ARDUINO ONLINE"; document.getElementById('connection-status').className = "status online"; }
+
+            if(data.alerts) {
+                document.getElementById('card-hr').className = data.alerts.hr ? "card card-alert" : "card";
+                document.getElementById('card-spo2').className = data.alerts.spo2 ? "card card-alert" : "card";
+                document.getElementById('card-temp').className = data.alerts.temp ? "card card-alert" : "card";
+
+                document.getElementById('risk-hr').className = data.alerts.hr ? "badge-warn" : "badge-safe";
+                document.getElementById('risk-hr').innerText = data.alerts.hr ? "HIGH RISK DETECTED" : "Safe Range";
+                
+                document.getElementById('risk-spo2').className = data.alerts.spo2 ? "badge-warn" : "badge-safe";
+                document.getElementById('risk-spo2').innerText = data.alerts.spo2 ? "DEPLETION DETECTED" : "Safe Range";
+                
+                document.getElementById('risk-temp').className = data.alerts.temp ? "badge-warn" : "badge-safe";
+                document.getElementById('risk-temp').innerText = data.alerts.temp ? "ABNORMALITY" : "Safe Range";
+            }
+
+            ['hr', 'spo2', 'temp'].forEach(key => {
+                document.getElementById(key).innerText = (key === 'temp') ? data[key].toFixed(1) : Math.round(data[key]);
+                let chartData = charts[key].data.datasets[0].data; chartData.push(data[key]); chartData.shift(); charts[key].update();
+            });
+        });
+
+        socket.on('system_alert', (data) => { document.getElementById('diag-text').innerText = data.msg; });
+        socket.on('ai_update', (data) => {
+            document.getElementById('ai-text').innerText = data.msg;
+            document.getElementById('ai-container').className = (data.type === 'danger') ? 'ai-box ai-danger' : (data.type === 'safe' ? 'ai-box ai-safe' : 'ai-box');
+        });
+
+        function sendChat() {
+            let input = document.getElementById('chat-input'), text = input.value.trim();
+            if(!text) return;
+            document.getElementById('chat-log').innerHTML += `<div class="msg-user">${text}</div>`;
+            document.getElementById('chat-log').scrollTop = document.getElementById('chat-log').scrollHeight;
+            input.value = '';
+            socket.emit('chat_msg', { text: text, vitals: currentVitals });
+        }
+
+        socket.on('chat_reply', (data) => {
+            document.getElementById('chat-log').innerHTML += `<div class="msg-ai">${data.msg}</div>`;
+            document.getElementById('chat-log').scrollTop = document.getElementById('chat-log').scrollHeight;
+        });
+
+        function loadHistory() {
+            fetch('/history_data').then(r => r.json()).then(data => {
+                let html = '';
+                data.forEach(day => {
+                    html += `<div class="hist-item">
+                        <h3>${day.date}</h3>
+                        <div class="hist-vitals"><span>❤️ HR Avg: ${day.hr_avg} BPM</span> <span>🫁 SpO2 Avg: ${day.spo2_avg}%</span> <span>🌡️ Temp Avg: ${day.temp_avg}°C</span></div>
+                        <p style="color:#8ab4f8; margin:0;">🤖 <b>AI Analysis:</b> ${day.summary}</p>
+                    </div>`;
+                });
+                document.getElementById('history-list').innerHTML = html;
+            });
+        }
+
+        setInterval(() => {
+            let isOffline = (Date.now() - lastRealUpdate > 2500);
+            if (simMode) {
+                // NO MORE AUTO RECOVERY! Values stay exactly where you set them.
+                // We only add a tiny bit of random noise so the charts don't freeze.
+                let nHr = simData.hr + (Math.random()*2-1), nTemp = simData.temp + (Math.random()*0.1-0.05), nSpo2 = simData.spo2;
+
+                if (isOffline) {
+                    document.getElementById('connection-status').innerText = "SIMULATOR ACTIVE"; document.getElementById('connection-status').className = "status btn-warn";
+                    fetch('/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hr: nHr, spo2: nSpo2, temp: nTemp, is_sim: true }) });
+                } else {
+                    socket.emit('set_override', {type: 'hr', val: nHr}); socket.emit('set_override', {type: 'spo2', val: nSpo2}); socket.emit('set_override', {type: 'temp', val: nTemp});
+                }
+            } else if (isOffline) {
+                document.getElementById('connection-status').innerText = "ARDUINO OFFLINE"; document.getElementById('connection-status').className = "status";
+            }
+        }, 1000);
+
+        function setSim(type) { 
+            simMode = true; 
+            if (type === 'normal') simData = { hr: TARGET_HR, spo2: TARGET_SPO2, temp: TARGET_TEMP };
+            if (type === 'anxiety') simData = { hr: 120, spo2: 98, temp: 35.0 }; 
+            if (type === 'exertion') simData = { hr: 135, spo2: 98, temp: 36.5 }; 
+            if (type === 'hypoxia') simData = { hr: 72, spo2: 91, temp: 36.5 }; 
+        }
+        function resetSim() { simMode = false; simData = { hr: TARGET_HR, spo2: TARGET_SPO2, temp: TARGET_TEMP }; socket.emit('set_override', {type: 'hr', val: null}); socket.emit('set_override', {type: 'spo2', val: null}); socket.emit('set_override', {type: 'temp', val: null}); }
+    </script>
+</body>
+</html>
