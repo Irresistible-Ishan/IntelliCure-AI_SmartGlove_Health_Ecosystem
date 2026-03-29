@@ -180,6 +180,9 @@ def handle_profile_update(data):
     update_math_thresholds()
     socketio.emit('system_alert', {'msg': "Patient Profile Updated. Formulas recalibrated."})
 
+
+    
+
 if __name__ == '__main__':
-    # Runs the server on all local interfaces on port 5000
-    socketio.run(app, host='0.0.0.0', port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    socketio.run(app, host='0.0.0.0', port=port)
