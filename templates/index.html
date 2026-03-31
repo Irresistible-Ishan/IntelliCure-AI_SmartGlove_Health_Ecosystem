@@ -17,7 +17,6 @@
         .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-shrink: 0; }
         .top-actions { display: flex; gap: 10px; align-items: center; }
         
-        /* Retain existing button styles to override Tailwind reset */
         button { padding: 10px 15px; cursor: pointer; border-radius: 8px; border: none; font-weight: bold; transition: 0.2s; }
         .btn-profile { background: #333; color: white; border: 1px solid #555; }
         .btn-profile:hover { background: #444; }
@@ -65,13 +64,11 @@
         .modal-content { background: var(--panel); padding: 30px; border-radius: 15px; border: 2px solid var(--accent); width: 300px; display: flex; flex-direction: column; gap: 10px;}
         .modal-content input, .modal-content select { padding: 8px; border-radius: 5px; border: 1px solid #555; background: #111; color: white; outline: none; }
 
-        /* Custom Scrollbar for dark theme */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: var(--bg); }
         ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #666; }
 
-        /* Clinical Tab Specific Styles */
         .clinical-card { background: var(--panel); border: 1px solid #333; border-radius: 12px; transition: transform 0.2s, box-shadow 0.2s; }
         .clinical-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
         .chart-box { position: relative; width: 100%; height: 300px; }
@@ -124,6 +121,7 @@
         <!-- VIEW 1: LIVE DASHBOARD -->
         <div id="dashboard-view" class="view-container">
             <div class="left-col">
+                
                 <div class="diag-box">⚙️ <b>SYSTEM:</b> <span id="diag-text">Vitals Stable</span></div>
                 <div class="ai-box" id="ai-container">🤖 <b>AI FEED:</b> <span id="ai-text">Waiting for anomalies...</span></div>
 
@@ -170,7 +168,7 @@
             <div id="history-list">Loading records...</div>
         </div>
 
-        <!-- VIEW 4: TEAM INFO -->
+        <!-- VIEW 3: TEAM INFO -->
         <div id="team-view" style="display:none; flex-direction:column; max-width: 900px; margin: 0 auto; width: 100%;">
             <div class="bg-[var(--panel)] p-8 rounded-xl border border-[#333] shadow-lg mt-4">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 pb-6 border-b border-[#333] gap-4">
@@ -235,7 +233,7 @@
             </div>
         </div>
 
-        <!-- VIEW 3: CLINICAL VALIDATION & LITERATURE -->
+        <!-- VIEW 4: CLINICAL VALIDATION & LITERATURE -->
         <div id="clinical-view" style="display:none; flex-direction:column; max-width: 1200px; margin: 0 auto; width: 100%;">
             
             <div class="flex justify-between items-center mb-8 pb-4 border-b border-[#333]">
@@ -371,12 +369,17 @@
     <!-- APPLICATION JAVASCRIPT LOGIC               -->
     <!-- ========================================== -->
     <script>
-        const socket = io();
+        // Safe socket initialization to prevent errors in sandboxes/previews
+        let socket = { on: function(){}, emit: function(){} };
+        if (typeof io !== 'undefined') {
+            try { socket = io("http://10.172.176.5:5000"); } catch(e) {}
+        }
+
         let lastRealUpdate = 0, simMode = false;
         const TARGET_HR = 72, TARGET_SPO2 = 98, TARGET_TEMP = 36.5;
         let simData = { hr: TARGET_HR, spo2: TARGET_SPO2, temp: TARGET_TEMP }; 
         let currentVitals = { hr: 0, spo2: 0, temp: 0 }; 
-        let clinChartsRendered = false;
+        var clinChartsRendered = false; // Prevents "Cannot access before initialization" in inline onclicks
 
         // Chart setup for Live Dashboard
         const makeChart = (ctx, color, min, max) => new Chart(document.getElementById(ctx), { type: 'line', data: { labels: Array(25).fill(''), datasets: [{ data: Array(25).fill(null), borderColor: color, tension: 0.4, pointRadius: 0 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { display: false, min: min, max: max } }, plugins: { legend: { display: false } }, animation: { duration: 0 } } });
@@ -389,8 +392,8 @@
             
             document.getElementById('dashboard-view').style.display = tab === 'dashboard' ? 'flex' : 'none';
             document.getElementById('history-view').style.display = tab === 'history' ? 'flex' : 'none';
-            document.getElementById('clinical-view').style.display = tab === 'clinical' ? 'flex' : 'none';
             document.getElementById('team-view').style.display = tab === 'team' ? 'flex' : 'none';
+            document.getElementById('clinical-view').style.display = tab === 'clinical' ? 'flex' : 'none';
             
             if(tab === 'history') loadHistory();
             if(tab === 'clinical' && !clinChartsRendered) {
@@ -405,11 +408,13 @@
             socket.emit('update_profile', { age: document.getElementById('inp-age').value, gender: document.getElementById('inp-gender').value, bmi: document.getElementById('inp-bmi').value, hypertension: document.getElementById('inp-htn').value });
             document.getElementById('profile-modal').style.display = 'none';
             // Sync clinical simulator age to profile age for consistency
-            document.getElementById('clin-ageSlider').value = document.getElementById('inp-age').value;
-            document.getElementById('clin-ageSlider').dispatchEvent(new Event('input'));
+            if (document.getElementById('clin-ageSlider')) {
+                document.getElementById('clin-ageSlider').value = document.getElementById('inp-age').value;
+                document.getElementById('clin-ageSlider').dispatchEvent(new Event('input'));
+            }
         }
 
-        // Centralized UI Update Function (Shared by real hardware & simulator mockup)
+        // Centralized UI Update Function
         function updateDashboard(data) {
             currentVitals = data; 
             if (!data.is_sim) { lastRealUpdate = Date.now(); document.getElementById('connection-status').innerText = "ARDUINO ONLINE"; document.getElementById('connection-status').className = "status online"; }
@@ -442,26 +447,42 @@
             document.getElementById('ai-text').innerText = data.msg;
             document.getElementById('ai-container').className = (data.type === 'danger') ? 'ai-box ai-danger' : (data.type === 'safe' ? 'ai-box ai-safe' : 'ai-box');
         });
+        socket.on('chat_reply', (data) => {
 
+            const chatLog = document.getElementById('chat-log');
+
+            // 🔥 remove typing indicator
+            let typing = document.getElementById('typing-msg');
+            if (typing) typing.remove();
+
+            // show AI reply
+            chatLog.innerHTML += `<div class="msg-ai">${data.msg}</div>`;
+            chatLog.scrollTop = chatLog.scrollHeight;
+        });
         function sendChat() {
-            let input = document.getElementById('chat-input'), text = input.value.trim();
-            if(!text) return;
-            document.getElementById('chat-log').innerHTML += `<div class="msg-user">${text}</div>`;
-            document.getElementById('chat-log').scrollTop = document.getElementById('chat-log').scrollHeight;
+            let input = document.getElementById('chat-input');
+            let text = input.value.trim();
+            if (!text) return;
+
+            const chatLog = document.getElementById('chat-log');
+
+            // user message
+            chatLog.innerHTML += `<div class="msg-user">${text}</div>`;
+
+            // 🔥 THIS IS THE FIX (problem 2 solution)
+            chatLog.innerHTML += `<div class="msg-ai" id="typing-msg">AI is typing...</div>`;
+
+            chatLog.scrollTop = chatLog.scrollHeight;
+
             input.value = '';
+
             socket.emit('chat_msg', { text: text, vitals: currentVitals });
         }
-
-        socket.on('chat_reply', (data) => {
-            document.getElementById('chat-log').innerHTML += `<div class="msg-ai">${data.msg}</div>`;
-            document.getElementById('chat-log').scrollTop = document.getElementById('chat-log').scrollHeight;
-        });
 
         function loadHistory() {
             try {
                 fetch('/history_data').then(r => r.json()).then(data => renderHistoryList(data)).catch(e => renderHistoryList(getMockHistory()));
             } catch (error) {
-                // Catch blob URL parsing error in preview sandboxes
                 renderHistoryList(getMockHistory());
             }
         }
@@ -491,15 +512,12 @@
                 if (isOffline) {
                     document.getElementById('connection-status').innerText = "SIMULATOR ACTIVE"; document.getElementById('connection-status').className = "status btn-warn";
                     
-                    // Directly update UI so simulator works in standalone preview without backend
                     let mockSimData = { hr: nHr, spo2: nSpo2, temp: nTemp, is_sim: true, alerts: { hr: nHr > 100, spo2: nSpo2 < 94, temp: nTemp < 35.5 || nTemp > 37.5 } };
                     updateDashboard(mockSimData);
 
                     try {
-                        fetch('/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hr: nHr, spo2: nSpo2, temp: nTemp, is_sim: true }) }).catch(e => { /* Ignore fetch fail if backend is offline */ });
-                    } catch (e) {
-                        // Ignore blob URL parse error in preview environments
-                    }
+                        fetch('/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hr: nHr, spo2: nSpo2, temp: nTemp, is_sim: true }) }).catch(e => { /* Ignore fetch fail */ });
+                    } catch (e) { /* Ignore parsing error */ }
                 } else {
                     socket.emit('set_override', {type: 'hr', val: nHr}); socket.emit('set_override', {type: 'spo2', val: nSpo2}); socket.emit('set_override', {type: 'temp', val: nTemp});
                 }
