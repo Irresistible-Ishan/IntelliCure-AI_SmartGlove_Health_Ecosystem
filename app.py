@@ -67,7 +67,7 @@ def get_ai_tip(prompt):
             model='mistral:7b',
             prompt=prompt
         )
-        return response['response'][:60]   # trim for LED
+        return response['response']   # trim for LED
     except Exception as e:
         print("Ollama Error:", e)
         return "Stay calm and rest. vitals abnormal"
@@ -125,7 +125,7 @@ def receive_data():
             last_diagnosis = diagnosis
             socketio.emit('system_alert', {'msg': diagnosis}) 
             
-            prompt = f"HR {int(data['hr'])}, SPO2 {int(data['spo2'])}, TEMP {data['temp']:.1f}. Give short advice."
+            prompt = f"HR {int(data['hr'])}, SPO2 {int(data['spo2'])}, TEMP {data['temp']:.1f}. you are an AI who assists people who have histroy of heart attacks , these are the live vitals , you have to give them good advice based on the vitals, it should be short enough such that it seems good in the led matrix , you dont need to state their vitals rather tell me advice what to do based on it , such as please relax and sit down or drink water or slow down etc.."
             ai_tip = get_ai_tip(prompt)
             
             socketio.emit('ai_update', {'msg': ai_tip, 'type': 'danger'})
@@ -158,7 +158,7 @@ def receive_data():
 
 @socketio.on('chat_msg')
 def handle_chat(data):
-    prompt = f"HR {int(data['vitals']['hr'])}, SPO2 {int(data['vitals']['spo2'])}, TEMP {data['vitals']['temp']}. Answer: {data['text']}"
+    prompt = f"HR {int(data['vitals']['hr'])}, SPO2 {int(data['vitals']['spo2'])}, TEMP {data['vitals']['temp']}. Answer: {data['text']} , you are an ai assistant who assist people who have had bad health issues histroy and they are wearing a device which gives you live vitals , please give me short and concise advice based on request , you dont have to tell the their vitals they already know , just tell me what they should do next based on the vitals and why they must be feeling uneasy "
     reply = get_ai_tip(prompt)
     socketio.emit('chat_reply', {'msg': reply})
 
