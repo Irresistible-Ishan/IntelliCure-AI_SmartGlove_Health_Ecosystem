@@ -372,7 +372,7 @@
         // Safe socket initialization to prevent errors in sandboxes/previews
         let socket = { on: function(){}, emit: function(){} };
         if (typeof io !== 'undefined') {
-            try { socket = io("http://10.172.176.5:5000"); } catch(e) {}
+            try { socket = io("http://10.151.192.5:5000"); } catch(e) {}
         }
 
         let lastRealUpdate = 0, simMode = false;
@@ -504,37 +504,81 @@
             document.getElementById('history-list').innerHTML = html;
         }
 
-        // Live Simulation Logic
-        setInterval(() => {
-            let isOffline = (Date.now() - lastRealUpdate > 2500);
-            if (simMode) {
-                let nHr = simData.hr + (Math.random()*2-1), nTemp = simData.temp + (Math.random()*0.1-0.05), nSpo2 = simData.spo2;
-                if (isOffline) {
-                    document.getElementById('connection-status').innerText = "SIMULATOR ACTIVE"; document.getElementById('connection-status').className = "status btn-warn";
-                    
-                    let mockSimData = { hr: nHr, spo2: nSpo2, temp: nTemp, is_sim: true, alerts: { hr: nHr > 100, spo2: nSpo2 < 94, temp: nTemp < 35.5 || nTemp > 37.5 } };
-                    updateDashboard(mockSimData);
+let simFetching = false;
+let simBaseData = null; // frozen base, noise applied on top for display only
 
-                    try {
-                        fetch('/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hr: nHr, spo2: nSpo2, temp: nTemp, is_sim: true }) }).catch(e => { /* Ignore fetch fail */ });
-                    } catch (e) { /* Ignore parsing error */ }
-                } else {
-                    socket.emit('set_override', {type: 'hr', val: nHr}); socket.emit('set_override', {type: 'spo2', val: nSpo2}); socket.emit('set_override', {type: 'temp', val: nTemp});
+setInterval(() => {
+    let isOffline = (Date.now() - lastRealUpdate > 2500);
+
+    if (simMode) {
+        // Apply display noise on top of frozen base — never mutate simData
+        let displayHR   = simData.hr   + (Math.random() * 2 - 1);
+        let displayTemp = simData.temp + (Math.random() * 0.1 - 0.05);
+        let displaySpo2 = simData.spo2;
+
+        document.getElementById('connection-status').innerText = "SIMULATOR ACTIVE";
+        document.getElementById('connection-status').className = "status btn-warn";
+
+        let mockAlerts = {
+            hr:   displayHR > 100,
+            spo2: displaySpo2 < 94,
+            temp: displayTemp < 35.5 || displayTemp > 37.5
+        };
+
+        // Always update the UI directly — don't wait for server roundtrip
+        updateDashboard({ hr: displayHR, spo2: displaySpo2, temp: displayTemp, is_sim: true, alerts: mockAlerts });
+
+        // Send to server for AI analysis, but throttled
+        if (!simFetching) {
+            simFetching = true;
+            fetch('/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hr: displayHR, spo2: displaySpo2, temp: displayTemp, is_sim: true })
+            })
+            .then(r => r.text())
+            .then(msg => {
+                // Update AI feed from server response
+                if (msg && msg.includes('|')) {
+                    let aiPart = msg.split('|')[1].trim();
+                    if (aiPart && aiPart !== 'Vitals Stable') {
+                        document.getElementById('ai-text').innerText = aiPart;
+                    }
                 }
-            } else if (isOffline) {
-                document.getElementById('connection-status').innerText = "ARDUINO OFFLINE"; document.getElementById('connection-status').className = "status";
-            }
-        }, 1000);
-
-        function setSim(type) { 
-            simMode = true; 
-            if (type === 'normal') simData = { hr: TARGET_HR, spo2: TARGET_SPO2, temp: TARGET_TEMP };
-            if (type === 'anxiety') simData = { hr: 120, spo2: 98, temp: 35.0 }; 
-            if (type === 'exertion') simData = { hr: 135, spo2: 98, temp: 36.5 }; 
-            if (type === 'hypoxia') simData = { hr: 72, spo2: 91, temp: 36.5 }; 
+            })
+            .catch(() => {})
+            .finally(() => { simFetching = false; });
         }
-        function resetSim() { simMode = false; simData = { hr: TARGET_HR, spo2: TARGET_SPO2, temp: TARGET_TEMP }; socket.emit('set_override', {type: 'hr', val: null}); socket.emit('set_override', {type: 'spo2', val: null}); socket.emit('set_override', {type: 'temp', val: null}); }
 
+        // Also always push overrides to socket so server state stays in sync
+        socket.emit('set_override', { type: 'hr',   val: displayHR });
+        socket.emit('set_override', { type: 'spo2', val: displaySpo2 });
+        socket.emit('set_override', { type: 'temp', val: displayTemp });
+
+    } else if (isOffline) {
+        document.getElementById('connection-status').innerText = "ARDUINO OFFLINE";
+        document.getElementById('connection-status').className = "status";
+    }
+}, 1000);
+
+function setSim(type) {
+    simMode = true;
+    simFetching = false;
+    // Set frozen base values — these never drift
+    if (type === 'normal')   simData = { hr: TARGET_HR, spo2: TARGET_SPO2, temp: TARGET_TEMP };
+    if (type === 'anxiety')  simData = { hr: 120,       spo2: 98,          temp: 35.0 };
+    if (type === 'exertion') simData = { hr: 135,       spo2: 98,          temp: 36.5 };
+    if (type === 'hypoxia')  simData = { hr: 72,        spo2: 91,          temp: 36.5 };
+}
+
+function resetSim() {
+    simMode = false;
+    simFetching = false;
+    simData = { hr: TARGET_HR, spo2: TARGET_SPO2, temp: TARGET_TEMP };
+    socket.emit('set_override', { type: 'hr',   val: null });
+    socket.emit('set_override', { type: 'spo2', val: null });
+    socket.emit('set_override', { type: 'temp', val: null });
+}
 
         // ==========================================
         // CLINICAL VALIDATION TAB LOGIC

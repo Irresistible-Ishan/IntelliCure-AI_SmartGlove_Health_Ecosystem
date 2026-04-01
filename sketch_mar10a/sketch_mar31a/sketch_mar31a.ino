@@ -14,7 +14,7 @@ ArduinoLEDMatrix matrix;
 // WIFI
 char ssid[] = "GalaxyA36";
 char pass[] = "ishan1234";
-char server_ip[] = "10.172.176.5";   // ✅ YOUR LAPTOP IP
+char server_ip[] = "10.151.192.5";   // ✅ YOUR LAPTOP IP
 int port = 5000;
 
 // OBJECTS
@@ -74,7 +74,7 @@ void setup() {
   Serial.println("\nWiFi OK");
   
   client.setTimeout(3000);
-
+  delay(1500);
   Serial.println("System ready, initializing SPO2 in loop...");
 }
 
@@ -83,13 +83,33 @@ void loop() {
   if (!sensorReady) {
     Serial.println("Trying SPO2 init...");
 
+    // Full I2C bus reset — forces SDA/SCL to clean idle state
+    Wire.end();
+    delay(100);
+
+    // Clock out any stuck transaction (up to 9 clocks)
+    pinMode(SDA, OUTPUT);
+    pinMode(SCL, OUTPUT);
+    for (int i = 0; i < 9; i++) {
+      digitalWrite(SCL, HIGH); delayMicroseconds(5);
+      digitalWrite(SCL, LOW);  delayMicroseconds(5);
+    }
+    // Send STOP condition
+    digitalWrite(SDA, LOW);  delayMicroseconds(5);
+    digitalWrite(SCL, HIGH); delayMicroseconds(5);
+    digitalWrite(SDA, HIGH); delayMicroseconds(5);
+
+    Wire.begin();
+    Wire.setClock(100000);
+    delay(500);  // let MAX30105 fully wake up
+
     if (particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
-      delay(800);
+      delay(1000);
       particleSensor.setup(60, 4, 2, 100, 411, 4096);
       sensorReady = true;
       Serial.println("✅ SPO2 READY");
 
-      for (byte i = 0 ; i < bufferLength ; i++) {
+      for (byte i = 0; i < bufferLength; i++) {
         while (!particleSensor.available()) particleSensor.check();
         redBuffer[i] = particleSensor.getRed();
         irBuffer[i] = particleSensor.getIR();
@@ -97,8 +117,8 @@ void loop() {
       }
 
     } else {
-      Serial.println("❌ SPO2 FAIL → retrying...");
-      delay(2000);
+      Serial.println("❌ SPO2 FAIL → retrying in 3s...");
+      delay(3000);
       return;
     }
   }

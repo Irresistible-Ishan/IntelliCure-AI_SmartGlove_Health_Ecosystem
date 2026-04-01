@@ -59,21 +59,17 @@ def analyze_vitals_math(hr, spo2, temp):
 
     return danger, diagnosis, flags
 
-
-# 🔥 CHANGED: USING OLLAMA (LOCAL AI)
 def get_ai_tip(prompt):
     try:
         response = ollama.generate(
             model='mistral:7b',
             prompt=prompt
         )
-        return response['response']   # trim for LED
+        return response['response']  
     except Exception as e:
         print("Ollama Error:", e)
         return "Stay calm and rest. vitals abnormal"
 
-
-# --- FLASK ROUTES ---
 
 @app.route('/')
 def index():
